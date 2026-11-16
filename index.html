@@ -58,11 +58,27 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .log li strong{color:var(--fg);font-weight:600}
 .log li strong.over{color:var(--bad)}
 .hint{font-size:11px;color:var(--muted);line-height:1.5;margin:0}
+.install{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;padding:10px 12px}
+.install p{margin:0;font-size:12px;color:var(--fg);line-height:1.4;min-width:0}
+.install button{border-color:var(--accent);color:var(--accent);white-space:nowrap}
+.install .x{border:none;color:var(--muted);padding:6px 8px;font-size:18px;line-height:1}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:20;padding:0 max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+.sheet .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px}
+.sheet h3{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.05em;text-transform:uppercase;margin:0}
+.sheet ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:1.45}
+.sheet .ico{display:inline-flex;vertical-align:-4px;color:var(--accent)}
+.sheet .note{font-size:12px;color:var(--muted);margin:0}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Mortar Calc <small>GRID × 100 = METERS</small></h1>
+
+  <div class="install" id="install" hidden>
+    <p id="install-text">Put Mortar Calc on your home screen. Opens full screen, works offline.</p>
+    <button id="install-btn" type="button">Install</button>
+    <button class="x" id="install-x" type="button" aria-label="Hide install banner">×</button>
+  </div>
 
   <div class="panel">
     <div class="row">
@@ -158,6 +174,44 @@ $("log-btn").addEventListener("click",logShot);
 $("new-btn").addEventListener("click",()=>{$("tx").value="";$("ty").value="";calc();$("tx").focus()});
 
 calc();
+
+// ---- Install button ----
+// Android / desktop Chrome & Edge: fire the real install prompt.
+// iPhone / iPad: Apple doesn't allow that, so show the 2-tap instructions instead.
+const ua=navigator.userAgent;
+const isIOS=/iPad|iPhone|iPod/.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const isIOSSafari=isIOS&&!/CriOS|FxiOS|EdgiOS|OPiOS|GSA|Instagram|FBAN|FBAV|Discord/i.test(ua);
+const installed=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+let dismissed=false;try{dismissed=localStorage.getItem("mortar-install-hide")==="1"}catch(e){}
+let deferred=null;
+const bar=$("install");
+
+function showBar(text){if(installed||dismissed)return;if(text)$("install-text").textContent=text;bar.hidden=false}
+
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferred=e;showBar()});
+window.addEventListener("appinstalled",()=>{bar.hidden=true;deferred=null});
+if(isIOS)showBar(isIOSSafari?null:"To install on iPhone, open this page in Safari first.");
+
+const shareIcon='<span class="ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></span>';
+const plusIcon='<span class="ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg></span>';
+
+function iosSheet(){
+  const s=document.createElement("div");s.className="sheet";
+  s.innerHTML=isIOSSafari
+    ?`<div class="card" role="dialog" aria-label="Install on iPhone"><h3>Add to Home Screen</h3><ol><li>Tap the Share button ${shareIcon} in Safari's toolbar.</li><li>Scroll down and tap <b>Add to Home Screen</b> ${plusIcon}</li><li>Tap <b>Add</b> in the top corner.</li></ol><p class="note">Apple doesn't let websites do this automatically, so it takes these 3 taps.</p><button type="button">Got it</button></div>`
+    :`<div class="card" role="dialog" aria-label="Open in Safari"><h3>Open in Safari</h3><ol><li>Copy this page's link.</li><li>Open Safari and paste it in.</li><li>Tap Install again there.</li></ol><p class="note">On iPhone, only Safari can add apps to the home screen.</p><button type="button" id="copy-link">Copy link</button></div>`;
+  document.body.appendChild(s);
+  s.addEventListener("click",e=>{if(e.target===s||e.target.textContent==="Got it")s.remove()});
+  const c=s.querySelector("#copy-link");
+  if(c)c.addEventListener("click",()=>{navigator.clipboard?.writeText(location.href).then(()=>{c.textContent="Copied"},()=>{c.textContent=location.href})});
+}
+
+$("install-btn").addEventListener("click",async()=>{
+  if(deferred){deferred.prompt();const r=await deferred.userChoice.catch(()=>null);deferred=null;if(r&&r.outcome==="accepted")bar.hidden=true;return}
+  if(isIOS){iosSheet();return}
+  $("install-text").textContent="Use your browser menu (⋮) and pick Install app or Add to Home screen.";
+});
+$("install-x").addEventListener("click",()=>{bar.hidden=true;try{localStorage.setItem("mortar-install-hide","1")}catch(e){}});
 
 if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
 </script>
