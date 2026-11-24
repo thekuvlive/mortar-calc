@@ -45,6 +45,13 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(
 .range span{font-size:28px;margin-left:4px;color:var(--muted)}
 .sub{margin-top:8px;font-size:13px;color:var(--muted);min-height:1.2em}
 .sub b{color:var(--bad);font-weight:600}
+.bearing{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px}
+.bearing .arrow{width:44px;height:44px;flex:none}
+.bearing .arrow path{transform-origin:20px 20px;transition:transform .25s ease}
+.bearing .lbl{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left}
+.bearing .deg{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;font-variant-numeric:tabular-nums;color:var(--accent)}
+.bearing .card{font-family:var(--display);font-weight:700;font-size:20px;color:var(--muted);margin-left:8px}
+@media (prefers-reduced-motion:reduce){.bearing .arrow path{transition:none}}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg);text-transform:none;letter-spacing:0;flex-direction:row;cursor:pointer}
 .toggle input{width:18px;height:18px;accent-color:var(--accent)}
@@ -95,11 +102,18 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
     <div class="readout">
       <div class="range" id="range">0<span>m</span></div>
+      <div class="bearing" id="bearing-row">
+        <svg class="arrow" id="arrow" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="var(--line)" stroke-width="2"/><text x="20" y="9" text-anchor="middle" font-size="7" fill="var(--muted)" font-family="var(--mono)">N</text><path d="M20 10 L25 26 L20 22 L15 26 Z" fill="var(--accent)"/></svg>
+        <div><span class="lbl">Bearing</span><span class="deg" id="deg">---°</span><span class="card" id="cardinal"></span></div>
+      </div>
       <div class="sub" id="sub"></div>
     </div>
 
     <div class="controls">
-      <label class="toggle" for="tank"><input id="tank" type="checkbox"> In tank (no 700 m cap)</label>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label class="toggle" for="tank"><input id="tank" type="checkbox"> In tank (no 700 m cap)</label>
+        <label class="toggle" for="flip"><input id="flip" type="checkbox"> Flip north/south (if bearing is off)</label>
+      </div>
       <div class="btns">
         <button id="log-btn" type="button">Log shot</button>
         <button id="new-btn" type="button">New target</button>
@@ -110,7 +124,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
   <div class="panel log">
     <h2>Shot log</h2>
-    <ol id="log"><li><span>Example: 84.71, 71.15 → 79.39, 68.74</span><strong>584 m</strong></li></ol>
+    <ol id="log"><li><span>Example: 84.71, 71.15 → 79.39, 68.74</span><strong>584 m · 246° WSW</strong></li></ol>
   </div>
   <button id="install-foot" type="button" hidden style="align-self:center">Install app on this phone</button>
 </div>
@@ -126,17 +140,25 @@ function num(v){const n=parseFloat(String(v).replace(",","."));return isFinite(n
 function calc(){
   const [bx,by,tx,ty]=ids.map(i=>num($(i).value));
   const r=$("range"),s=$("sub");
-  if([bx,by,tx,ty].some(v=>v===null)){r.className="range idle";r.innerHTML="---<span>m</span>";s.textContent="Fill all four boxes";return null}
+  if([bx,by,tx,ty].some(v=>v===null)){r.className="range idle";r.innerHTML="---<span>m</span>";s.textContent="Fill all four boxes";$("deg").textContent="---°";$("cardinal").textContent="";return null}
   const m=Math.hypot(tx-bx,ty-by)*100;
+  // Bearing: 0 = north, clockwise. Assumes X grows east and Y grows north; the Flip box covers a map where Y grows south.
+  const dy=$("flip").checked?by-ty:ty-by;
+  const brg=m===0?0:(Math.atan2(tx-bx,dy)*180/Math.PI+360)%360;
+  const pts=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  const card=pts[Math.round(brg/22.5)%16];
+  $("deg").textContent=Math.round(brg)%360+"°";$("cardinal").textContent=card;
+  $("arrow").querySelector("path").style.transform=`rotate(${brg}deg)`;
   const over=!$("tank").checked&&m>CAP;
   r.className="range"+(over?" over":"");
   r.innerHTML=Math.round(m).toLocaleString()+"<span>m</span>";
   s.innerHTML=over?`<b>${Math.round(m-CAP)} m past the 700 cap.</b> Close the gap or use the tank.`:`Exact ${m.toFixed(1)} m`+(m<100?" · danger close":"");
-  return {m,over,bx,by,tx,ty};
+  return {m,over,bx,by,tx,ty,brg:Math.round(brg)%360,card};
 }
 
-function save(){try{localStorage.setItem("mortar-base",JSON.stringify({bx:$("bx").value,by:$("by").value,tank:$("tank").checked}))}catch(e){}}
-try{const b=JSON.parse(localStorage.getItem("mortar-base")||"null");if(b){$("bx").value=b.bx;$("by").value=b.by;$("tank").checked=!!b.tank}}catch(e){}
+function save(){try{localStorage.setItem("mortar-base",JSON.stringify({bx:$("bx").value,by:$("by").value,tank:$("tank").checked,flip:$("flip").checked}))}catch(e){}}
+try{const b=JSON.parse(localStorage.getItem("mortar-base")||"null");if(b){$("bx").value=b.bx;$("by").value=b.by;$("tank").checked=!!b.tank;$("flip").checked=!!b.flip}}catch(e){}
+$("flip").addEventListener("change",()=>{calc();save()});
 
 // Paste a pair into an X box. Honors x/y labels, so "59.22y 100.35x" lands correctly.
 function splitPair(text){
@@ -168,7 +190,7 @@ function logShot(){
   const ol=$("log");
   if(exampleRow){ol.innerHTML="";exampleRow=false}
   const li=document.createElement("li");
-  li.innerHTML=`<span>${c.bx}, ${c.by} → ${c.tx}, ${c.ty}</span><strong class="${c.over?"over":""}">${Math.round(c.m).toLocaleString()} m</strong>`;
+  li.innerHTML=`<span>${c.bx}, ${c.by} → ${c.tx}, ${c.ty}</span><strong class="${c.over?"over":""}">${Math.round(c.m).toLocaleString()} m · ${c.brg}° ${c.card}</strong>`;
   ol.prepend(li);
   while(ol.children.length>12)ol.lastChild.remove();
 }
