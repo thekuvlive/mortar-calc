@@ -65,6 +65,25 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .log li strong{color:var(--fg);font-weight:600}
 .log li strong.over{color:var(--bad)}
 .hint{font-size:11px;color:var(--muted);line-height:1.5;margin:0}
+.adjust h2{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0}
+.adj-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.amt{flex-direction:row;align-items:center;gap:8px}
+.amt input{width:80px;font-size:18px;padding:8px;text-align:center}
+.pad{display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"add add" "left right" "drop drop";gap:8px}
+.pad [data-adj=add]{grid-area:add}.pad [data-adj=left]{grid-area:left}.pad [data-adj=right]{grid-area:right}.pad [data-adj=drop]{grid-area:drop}
+.pad button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px;font-size:16px}
+.pad small{font-family:var(--mono);font-weight:400;font-size:10px;letter-spacing:.05em;text-transform:none;color:var(--muted)}
+.adj-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:var(--muted)}
+button:disabled{opacity:.4;cursor:default}
+button:disabled:hover{border-color:var(--line);color:var(--fg)}
+.credit{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-size:12px;color:var(--muted);padding-top:8px}
+.credit a{color:var(--accent);text-decoration:none;font-weight:600}
+.credit a:hover{text-decoration:underline}
+.credit .fine{font-size:10px;opacity:.8}
+.credit .logo-link{display:block;line-height:0}
+.credit img{width:160px;height:auto;max-width:100%}
+.credit a.tip{font-family:var(--display);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:14px;color:#0e1a1b;background:#3fd6d6;border-radius:3px;padding:8px 16px;margin:4px 0}
+.credit a.tip:hover{text-decoration:none;filter:brightness(1.1)}
 [hidden]{display:none!important}
 .install{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;padding:10px 12px}
 .install p{margin:0;font-size:12px;color:var(--fg);line-height:1.4;min-width:0}
@@ -122,11 +141,34 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     <p class="hint">Enter jumps to the next box. Paste a pair like "84.71x 71.15y" into an X box and it splits itself, even if Y comes first. Base is remembered.</p>
   </div>
 
+  <div class="panel adjust">
+    <div class="adj-head">
+      <h2>Adjust fire</h2>
+      <label class="amt" for="amt">Meters<input id="amt" type="text" inputmode="numeric" autocomplete="off" value="25"></label>
+    </div>
+    <div class="pad">
+      <button type="button" data-adj="add">Add ▲<small>landed short</small></button>
+      <button type="button" data-adj="left">◀ Left</button>
+      <button type="button" data-adj="right">Right ▶</button>
+      <button type="button" data-adj="drop">Drop ▼<small>landed long</small></button>
+    </div>
+    <div class="adj-foot">
+      <span id="adj-note">Moves the target, as seen from your gun.</span>
+      <button type="button" id="undo" disabled>Undo</button>
+    </div>
+  </div>
+
   <div class="panel log">
     <h2>Shot log</h2>
     <ol id="log"><li><span>Example: 84.71, 71.15 → 79.39, 68.74</span><strong>584 m · 246° WSW</strong></li></ol>
   </div>
   <button id="install-foot" type="button" hidden style="align-self:center">Install app on this phone</button>
+  <footer class="credit">
+    <a href="https://www.twitch.tv/the_kuv" target="_blank" rel="noopener" class="logo-link"><img src="logo.png" alt="the_kuv logo" width="160" height="134"></a>
+    <span>Built by <a href="https://www.twitch.tv/the_kuv" target="_blank" rel="noopener">the_kuv</a> · catch the stream on Twitch</span>
+    <a id="tip" class="tip" href="#" target="_blank" rel="noopener" hidden>Tip the_kuv</a>
+    <span class="fine">Fan-made tool. Not affiliated with WARDOGS or BULKHEAD.</span>
+  </footer>
 </div>
 
 <script>
@@ -195,7 +237,43 @@ function logShot(){
   while(ol.children.length>12)ol.lastChild.remove();
 }
 $("log-btn").addEventListener("click",logShot);
-$("new-btn").addEventListener("click",()=>{$("tx").value="";$("ty").value="";calc();$("tx").focus()});
+$("new-btn").addEventListener("click",()=>{$("tx").value="";$("ty").value="";undoStack.length=0;$("undo").disabled=true;calc();$("tx").focus()});
+
+// ---- Adjust fire ----
+// Shifts the target along the gun-to-target line (add/drop) or across it (left/right).
+const undoStack=[];
+$("amt").addEventListener("focus",e=>e.target.select());
+document.querySelectorAll("[data-adj]").forEach(btn=>btn.addEventListener("click",()=>{
+  const [bx,by,tx,ty]=ids.map(i=>num($(i).value));
+  if([bx,by,tx,ty].some(v=>v===null)){$("adj-note").textContent="Enter base and target first.";return}
+  const amt=num($("amt").value);
+  if(!amt||amt<=0){$("adj-note").textContent="Enter how many meters to move.";return}
+  const flip=$("flip").checked?-1:1;
+  const e=tx-bx,n=(ty-by)*flip,d=Math.hypot(e,n);
+  if(d===0){$("adj-note").textContent="Base and target are the same spot.";return}
+  const ue=e/d,un=n/d;            // unit vector toward target (east, north)
+  const g=amt/100;                // meters to grid units
+  let de=0,dn=0;
+  switch(btn.dataset.adj){
+    case "add":de=ue*g;dn=un*g;break;
+    case "drop":de=-ue*g;dn=-un*g;break;
+    case "right":de=un*g;dn=-ue*g;break;
+    case "left":de=-un*g;dn=ue*g;break;
+  }
+  undoStack.push([$("tx").value,$("ty").value]);$("undo").disabled=false;
+  $("tx").value=(tx+de).toFixed(2);$("ty").value=(ty+dn*flip).toFixed(2);
+  calc();
+  $("adj-note").textContent=`${btn.dataset.adj[0].toUpperCase()+btn.dataset.adj.slice(1)} ${Math.round(amt)} m applied.`;
+}));
+$("undo").addEventListener("click",()=>{
+  const prev=undoStack.pop();if(!prev)return;
+  $("tx").value=prev[0];$("ty").value=prev[1];calc();
+  $("undo").disabled=!undoStack.length;$("adj-note").textContent="Undone.";
+});
+
+// ---- Tip link: paste your Ko-fi or Buy Me a Coffee link between the quotes to show it ----
+const TIP_URL="https://streamlabs.com/the_kuv/tip";
+if(TIP_URL){$("tip").href=TIP_URL;$("tip").hidden=false}
 
 calc();
 
